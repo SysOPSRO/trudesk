@@ -915,7 +915,7 @@ angular
       all: function (page) {
         if (page === undefined) page = 0
 
-        var queryString = '/api/v1/tickets?limit=' + 10 + '&status[]=0&status[]=1&status[]=2&page=' + page
+        var queryString = '/api/v1/tickets?limit=' + 20 + '&type=active&page=' + page
         if ($localStorage.showClosedTickets !== undefined && $localStorage.showClosedTickets === true)
           queryString += '&status[]=3'
         if ($localStorage.showOnlyAssigned !== undefined && $localStorage.showOnlyAssigned === true)
