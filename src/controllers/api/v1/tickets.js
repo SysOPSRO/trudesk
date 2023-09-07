@@ -429,6 +429,12 @@ apiTickets.create = function (req, res) {
         UserSchema.findOne({ _id: req.user._id }, done)
       },
       function (user, done) {
+        var TicketStatusSchema = require('../../../models/ticketStatus')
+        TicketStatusSchema.findOne({ order: 0 }, function (err, status) {
+          return done(err, status, user)
+        })
+      },
+      function (status, user, done) {
         if (user.deleted) return done({ status: 400, error: 'Invalid User' })
 
         var HistoryItem = {
@@ -439,6 +445,9 @@ apiTickets.create = function (req, res) {
 
         var TicketSchema = require('../../../models/ticket')
         var ticket = new TicketSchema(postData)
+
+        ticket.status = status._id
+
         if (!_.isUndefined(postData.owner)) {
           ticket.owner = postData.owner
         } else {
@@ -1355,6 +1364,128 @@ apiTickets.updatePriority = function (req, res) {
       return res.json({ success: true, priority: p })
     })
   })
+}
+
+apiTickets.createStatus = function (req, res) {
+  var data = req.body
+
+  var pName = data.name
+
+  var pHtmlColor = data.htmlColor
+
+  if (!pName) {
+    return res.status(400).json({ success: false, error: 'Invalid Request Data.' })
+  }
+
+  var TicketStatusSchema = require('../../../models/ticketStatus')
+
+  var P = new TicketStatusSchema({
+    name: pName,
+    htmlColor: pHtmlColor
+  })
+
+  P.save(function (err, savedPriority) {
+    if (err) {
+      return res.status(400).json({ success: false, error: err.message })
+    }
+
+    return res.json({ success: true, priority: savedPriority })
+  })
+}
+
+apiTickets.getStatus = function (req, res) {
+  var ticketStatusSchema = require('../../../models/ticketStatus')
+  ticketStatusSchema.find({}, function (err, status) {
+    if (err) return res.status(400).json({ success: false, error: err.message })
+
+    status = _.sortBy(status, 'order')
+
+    return res.json({ success: true, status: status })
+  })
+}
+
+apiTickets.updateStatus = function (req, res) {
+  var id = req.params.id
+  var data = req.body
+
+  if (_.isUndefined(id) || _.isNull(id) || _.isNull(data) || _.isUndefined(data)) {
+    return res.status(400).json({ success: false, error: 'Invalid Request Data' })
+  }
+
+  var ticketStatusSchema = require('../../../models/ticketStatus')
+  ticketStatusSchema.findOne({ _id: id }, function (err, status) {
+    if (err) return res.status(400).json({ success: false, error: err.message })
+
+    if (data.name) status.name = data.name
+    if (data.htmlColor) status.htmlColor = data.htmlColor
+    status.isResolved = data.isResolved
+    status.slatimer = data.slatimer
+
+    status.save(function (err, p) {
+      if (err) return res.status(400).json({ success: false, error: err.message })
+
+      return res.json({ success: true, status: p })
+    })
+  })
+}
+
+apiTickets.updateStatusOrder = function (req, res) {
+  var data = req.body
+  if (!data || !data.order) return res.status(400).json({ success: false, error: 'Invalid Post Data' })
+
+  var order = data.order
+  var ticketStatusSchema = require('../../../models/ticketStatus')
+  ticketStatusSchema.find({}, function (err, statuses) {
+    if (err) return res.status(400).json({ success: false, error: err })
+
+    async.eachSeries(
+      statuses,
+      function (item, done) {
+        var idx = _.findIndex(order, id => item._id.toString() === id)
+        item.order = idx
+        item.save(done)
+      },
+      function (err) {
+        if (err) {
+          winston.debug(err)
+          return res.status(500).json({ success: false, error: err })
+        }
+
+        return res.status(200).json({ success: true })
+      }
+    )
+  })
+}
+
+apiTickets.deleteStatus = function (req, res) {
+  var id = req.params.id
+  var newStatusId = req.body.newStatusId
+  if (!id || !newStatusId) {
+    return res.status(400).json({ success: false, error: 'Invalid Request Data' })
+  }
+
+  async.series(
+    [
+      function (next) {
+        var ticketSchema = require('../../../models/ticket')
+        ticketSchema.updateMany({ status: id }, { status: newStatusId }, next)
+      },
+      function (next) {
+        var ticketStatusSchema = require('../../../models/ticketStatus')
+        ticketStatusSchema.findOne({ _id: id }, function (err, status) {
+          if (err) return next(err)
+          if (status.isLocked) return next(`Unable to delete default status: ${status.name}`)
+
+          status.remove(next)
+        })
+      }
+    ],
+    function (err) {
+      if (err) return res.status(400).json({ success: false, error: err.message })
+
+      return res.json({ success: true })
+    }
+  )
 }
 
 apiTickets.deletePriority = function (req, res) {

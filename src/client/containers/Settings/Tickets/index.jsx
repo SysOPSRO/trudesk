@@ -23,7 +23,7 @@ import UIKit from 'uikit'
 import helpers from 'lib/helpers'
 
 import { updateSetting } from 'actions/settings'
-import { getTagsWithPage, tagsUpdateCurrentPage } from 'actions/tickets'
+import { getTagsWithPage, tagsUpdateCurrentPage, deleteStatus } from 'actions/tickets'
 import { showModal } from 'actions/common'
 
 import EnableSwitch from 'components/Settings/EnableSwitch'
@@ -41,12 +41,45 @@ import SettingItem from 'components/Settings/SettingItem'
 import SingleSelect from 'components/SingleSelect'
 import SplitSettingsPanel from 'components/Settings/SplitSettingsPanel'
 import SpinLoader from 'components/SpinLoader'
+import EditStatusPartial from './editStatusPartial'
+import TicketStatusContainer from 'containers/Settings/Tickets/ticketStatusContainer'
 
 class TicketsSettings extends React.Component {
   constructor (props) {
     super(props)
 
     this.getTicketTags = this.getTicketTags.bind(this)
+  }
+
+  static toggleEditPriority (e) {
+    const $parent = $(e.target).parents('.priority-wrapper')
+    const $v = $parent.find('.view-priority')
+    const $e = $parent.find('.edit-priority')
+    if ($v && $e) {
+      $v.toggleClass('hide')
+      $e.toggleClass('hide')
+    }
+  }
+
+  static toggleEditStatus (e) {
+    const $parent = $(e.target).parents('.status-wrapper')
+    const $v = $parent.find('.view-status')
+    const $e = $parent.find('.edit-status')
+    if ($v && $e) {
+      $v.toggleClass('hide')
+      $e.toggleClass('hide')
+    }
+  }
+
+  static toggleEditTag (e) {
+    const $target = $(e.target)
+    const $parent = $target.parents('.tag-wrapper')
+    const $v = $parent.find('.view-tag')
+    const $e = $parent.find('.edit-tag')
+    if ($v && $e) {
+      $v.toggleClass('hide')
+      $e.toggleClass('hide')
+    }
   }
 
   componentDidMount () {
@@ -86,6 +119,10 @@ class TicketsSettings extends React.Component {
     return this.props.settings && this.props.settings.get('priorities')
       ? this.props.settings.get('priorities').toArray()
       : []
+  }
+
+  getStatus () {
+    return this.props.settings && this.props.settings.get('status') ? this.props.settings.get('status').toArray() : []
   }
 
   getTicketTags (e, page) {
@@ -139,30 +176,16 @@ class TicketsSettings extends React.Component {
     this.props.showModal(modal, props)
   }
 
-  static toggleEditPriority (e) {
-    const $parent = $(e.target).parents('.priority-wrapper')
-    const $v = $parent.find('.view-priority')
-    const $e = $parent.find('.edit-priority')
-    if ($v && $e) {
-      $v.toggleClass('hide')
-      $e.toggleClass('hide')
-    }
-  }
-
   onRemovePriorityClicked (e, priority) {
     e.preventDefault()
     this.props.showModal('DELETE_PRIORITY', { priority })
   }
 
-  static toggleEditTag (e) {
-    const $target = $(e.target)
-    const $parent = $target.parents('.tag-wrapper')
-    const $v = $parent.find('.view-tag')
-    const $e = $parent.find('.edit-tag')
-    if ($v && $e) {
-      $v.toggleClass('hide')
-      $e.toggleClass('hide')
-    }
+  onRemoveStatusClicked (e, stat) {
+    e.preventDefault()
+    console.log(stat)
+    console.log(stat.get('_id'))
+    this.props.deleteStatus(stat.get('id'))
   }
 
   onSubmitUpdateTag (e, tagId) {
@@ -391,6 +414,51 @@ class TicketsSettings extends React.Component {
             })}
           </Zone>
         </SettingItem>
+        <TicketStatusContainer statuses={this.getStatus()} />
+
+        {/*<SettingItem*/}
+        {/*  title={'Ticket Status'}*/}
+        {/*  subtitle={'Ticket status sets the current status options available'}*/}
+        {/*  component={*/}
+        {/*    <Button*/}
+        {/*      text={'Create'}*/}
+        {/*      style={'success'}*/}
+        {/*      flat={true}*/}
+        {/*      waves={true}*/}
+        {/*      extraClass={'mt-10 right'}*/}
+        {/*      onClick={e => this.showModal(e, 'CREATE_STATUS')}*/}
+        {/*    />*/}
+        {/*  }*/}
+        {/*>*/}
+        {/*  <Zone>*/}
+        {/*    {this.getStatus().map(p => {*/}
+        {/*      return (*/}
+        {/*        <ZoneBox key={p.get('_id')} extraClass={'status-wrapper'}>*/}
+        {/*          <SettingSubItem*/}
+        {/*            parentClass={'view-status'}*/}
+        {/*            title={p.get('name')}*/}
+        {/*            titleCss={{ color: p.get('htmlColor') }}*/}
+        {/*            component={*/}
+        {/*              <ButtonGroup classNames={'uk-float-right'}>*/}
+        {/*                <Button*/}
+        {/*                  text={'Remove'}*/}
+        {/*                  small={true}*/}
+        {/*                  style={'danger'}*/}
+        {/*                  disabled={p.get('isLocked')}*/}
+        {/*                  onClick={e => this.onRemoveStatusClicked(e, p)}*/}
+        {/*                />*/}
+
+        {/*                <Button text={'Edit'} small={true} onClick={e => TicketsSettings.toggleEditStatus(e)} />*/}
+        {/*              </ButtonGroup>*/}
+        {/*            }*/}
+        {/*          />*/}
+        {/*          <EditStatusPartial status={p} />*/}
+        {/*        </ZoneBox>*/}
+        {/*      )*/}
+        {/*    })}*/}
+        {/*  </Zone>*/}
+        {/*</SettingItem>*/}
+
         <SettingItem
           title={'Ticket Tags'}
           subtitle={'Create/Modify Ticket Tags'}
@@ -510,7 +578,8 @@ TicketsSettings.propTypes = {
   updateSetting: PropTypes.func.isRequired,
   getTagsWithPage: PropTypes.func.isRequired,
   tagsUpdateCurrentPage: PropTypes.func.isRequired,
-  showModal: PropTypes.func.isRequired
+  showModal: PropTypes.func.isRequired,
+  deleteStatus: PropTypes.func.isRequired
 }
 
 const mapStateToProps = state => ({
@@ -519,6 +588,10 @@ const mapStateToProps = state => ({
   tagsSettings: state.tagsSettings
 })
 
-export default connect(mapStateToProps, { updateSetting, getTagsWithPage, tagsUpdateCurrentPage, showModal })(
-  TicketsSettings
-)
+export default connect(mapStateToProps, {
+  updateSetting,
+  getTagsWithPage,
+  tagsUpdateCurrentPage,
+  showModal,
+  deleteStatus
+})(TicketsSettings)

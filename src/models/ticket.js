@@ -24,14 +24,15 @@ const utils = require('../helpers/utils')
 
 // Needed - For Population
 const groupSchema = require('./group')
-require('./tickettype')
 const userSchema = require('./user')
 const commentSchema = require('./comment')
 const noteSchema = require('./note')
 const attachmentSchema = require('./attachment')
 const historySchema = require('./history')
+const statusSchema = require('./ticketStatus')
 require('./tag')
 require('./ticketpriority')
+require('./tickettype')
 
 const COLLECTION = 'tickets'
 
@@ -91,7 +92,12 @@ const ticketSchema = mongoose.Schema({
     required: true,
     ref: 'tickettypes'
   },
-  status: { type: Number, default: 0, required: true, index: true },
+  status: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: 'statuses',
+    index: true
+  },
 
   priority: {
     type: mongoose.Schema.Types.ObjectId,
@@ -183,27 +189,15 @@ ticketSchema.post('save', async function (doc, next) {
   }
 })
 
-ticketSchema.virtual('statusFormatted').get(function () {
+ticketSchema.virtual('statusFormatted').get(function (callback) {
   const s = this.status
-  let formatted
-  switch (s) {
-    case 0:
-      formatted = 'New'
-      break
-    case 1:
-      formatted = 'Open'
-      break
-    case 2:
-      formatted = 'Pending'
-      break
-    case 3:
-      formatted = 'Closed'
-      break
-    default:
-      formatted = 'New'
-  }
+  const ticketStatus = require('./ticketStatus')
 
-  return formatted
+  ticketStatus.findOne({ uid: s }, function (err, status) {
+    if (err) return callback(err)
+    if (!status) return callback('Invalid Status Id: ' + typeId)
+    if (typeof callback === 'function') return callback(null, status.get('name'))
+  })
 })
 
 ticketSchema.virtual('commentsAndNotes').get(function () {
@@ -226,7 +220,7 @@ ticketSchema.virtual('commentsAndNotes').get(function () {
  * @memberof Ticket
  *
  * @param {Object} ownerId Account ID preforming this action
- * @param {Number} status Status to set
+ * @param {string} status Status to set
  * @param {function} callback Callback with the updated ticket.
  *
  * @example
@@ -244,20 +238,33 @@ ticketSchema.methods.setStatus = function (ownerId, status, callback) {
       return reject(new Error('Invalid Status'))
     }
 
-    self.closedDate = status === 3 ? new Date() : null
-    self.status = status
+    const statusSchema = require('./ticketStatus')
+    statusSchema.getStatusById(status, function (err, statusModel) {
+      if (err) {
+        if (typeof callback === 'function') return callback(err)
+        return reject(new Error('Invalid Status'))
+      }
 
-    const historyItem = {
-      action: 'ticket:set:status:' + status,
-      description: 'Ticket Status set to: ' + statusToString(status),
-      owner: ownerId
-    }
+      if (!status) {
+        if (typeof callback === 'function') return callback('Invalid Status')
+        return reject(new Error('Invalid Status'))
+      }
 
-    self.history.push(historyItem)
+      self.closedDate = statusModel.isResolved ? new Date() : null
+      self.status = status
 
-    if (typeof callback === 'function') callback(null, self)
+      const historyItem = {
+        action: 'ticket:set:status:' + statusModel.name,
+        description: 'Ticket Status set to: ' + statusModel.name,
+        owner: ownerId
+      }
 
-    return resolve(self)
+      self.history.push(historyItem)
+
+      if (typeof callback === 'function') callback(null, self)
+
+      return resolve(self)
+    })
   })
 }
 
@@ -724,7 +731,7 @@ ticketSchema.statics.getAll = function (callback) {
     .model(COLLECTION)
     .find({ deleted: false })
     .populate('owner assignee', '-password -__v -preferences -iOSDeviceTokens -tOTPKey')
-    .populate('type tags group')
+    .populate('type tags status group')
     .sort({ status: 1 })
     .lean()
 
@@ -789,7 +796,7 @@ ticketSchema.statics.getAllByStatus = function (status, callback) {
       'owner assignee comments.owner notes.owner subscribers history.owner',
       'username fullname email role image title'
     )
-    .populate('type tags group')
+    .populate('type tags status group')
     .sort({ status: 1 })
     .lean()
 
@@ -823,7 +830,7 @@ ticketSchema.statics.getTickets = function (grpIds, callback) {
       'owner assignee comments.owner notes.owner subscribers history.owner',
       'username fullname email role image title'
     )
-    .populate('type tags group')
+    .populate('type tags status group')
     .sort({ status: 1 })
 
   return q.exec(callback)
@@ -901,7 +908,7 @@ function buildQueryWithObject (SELF, grpId, object, count) {
         'username fullname email role image title'
       )
       .populate('assignee', 'username fullname email role image title')
-      .populate('type tags group')
+      .populate('type tags status group')
       .sort({ uid: -1 })
   }
 
@@ -1039,7 +1046,7 @@ ticketSchema.statics.getTicketsByStatus = function (grpId, status, callback) {
       'owner assignee comments.owner notes.owner subscribers history.owner',
       'username fullname email role image title'
     )
-    .populate('type tags group')
+    .populate('type tags status group')
     .sort({ uid: -1 })
 
   return q.exec(callback)
@@ -1066,7 +1073,7 @@ ticketSchema.statics.getTicketByUid = function (uid, callback) {
       'owner assignee comments.owner notes.owner subscribers history.owner',
       'username fullname email role image title'
     )
-    .populate('type tags group')
+    .populate('type tags status group')
 
   return q.exec(callback)
 }
@@ -1100,7 +1107,7 @@ ticketSchema.statics.getTicketById = async function (id, callback) {
           'owner assignee comments.owner notes.owner subscribers history.owner',
           'username fullname email role image title'
         )
-        .populate('type tags')
+        .populate('type tags status')
         .populate({
           path: 'group',
           model: groupSchema,
@@ -1153,7 +1160,7 @@ ticketSchema.statics.getTicketsByRequester = function (userId, callback) {
       'owner assignee comments.owner notes.owner subscribers history.owner',
       'username fullname email role image title'
     )
-    .populate('type tags')
+    .populate('type tags status')
     .populate({
       path: 'group',
       model: groupSchema,
@@ -1196,7 +1203,7 @@ ticketSchema.statics.getTicketsWithSearchString = function (grps, search, callba
             'owner assignee comments.owner notes.owner subscribers history.owner',
             'username fullname email role image title'
           )
-          .populate('type tags group')
+          .populate('type tags status group')
           .limit(100)
 
         q.exec(function (err, results) {
@@ -1218,7 +1225,7 @@ ticketSchema.statics.getTicketsWithSearchString = function (grps, search, callba
             'owner assignee comments.owner notes.owner subscribers history.owner',
             'username fullname email role image title'
           )
-          .populate('type tags group')
+          .populate('type tags status group')
           .limit(100)
 
         q.exec(function (err, results) {
@@ -1240,7 +1247,7 @@ ticketSchema.statics.getTicketsWithSearchString = function (grps, search, callba
             'owner assignee comments.owner notes.owner subscribers history.owner',
             'username fullname email role image title'
           )
-          .populate('type tags group')
+          .populate('type tags status group')
           .limit(100)
 
         q.exec(function (err, results) {
@@ -1277,23 +1284,23 @@ ticketSchema.statics.getOverdue = function (grpId, callback) {
 
   const self = this
 
-  // Disable cache (TEMP 01/04/2019)
-  // const grpHash = hash(grpId);
-  // const cache = global.cache;
-  // if (cache) {
-  //     const overdue = cache.get('tickets:overdue:' + grpHash);
-  //     if (overdue)
-  //         return callback(null, overdue);
-  // }
-
   async.waterfall(
     [
       function (next) {
+        statusSchema.find({ slatimer: true }, function (err, statuses) {
+          if (err) return next(err)
+
+          const statusesMapped = statuses.map(i => i._id)
+
+          return next(null, statusesMapped)
+        })
+      },
+      function (statuses, next) {
         return self
           .model(COLLECTION)
           .find({
             group: { $in: grpId },
-            status: { $in: [0, 1] },
+            status: { $in: statuses },
             deleted: false
           })
           .select('_id date updated')
@@ -1509,16 +1516,22 @@ ticketSchema.statics.getAssigned = function (userId, callback) {
 
   const self = this
 
-  const q = self
-    .model(COLLECTION)
-    .find({ assignee: userId, deleted: false, status: { $ne: 3 } })
-    .populate(
-      'owner assignee comments.owner notes.owner subscribers history.owner',
-      'username fullname email role image title'
-    )
-    .populate('type tags group')
+  statusSchema.find({ isResolved: false }, function (err, statuses) {
+    if (err) return callback(err)
 
-  return q.exec(callback)
+    const unresolvedStatusesIds = statuses.map(i => i._id)
+
+    const q = self
+      .model(COLLECTION)
+      .find({ assignee: userId, deleted: false, status: { $in: unresolvedStatusesIds } })
+      .populate(
+        'owner assignee comments.owner notes.owner subscribers history.owner',
+        'username fullname email role image title'
+      )
+      .populate('type tags status group')
+
+    return q.exec(callback)
+  })
 }
 
 /**
@@ -1695,29 +1708,6 @@ ticketSchema.statics.getDeleted = function (callback) {
     .sort({ uid: -1 })
     .limit(1000)
     .exec(callback)
-}
-
-function statusToString (status) {
-  let str
-  switch (status) {
-    case 0:
-      str = 'New'
-      break
-    case 1:
-      str = 'Open'
-      break
-    case 2:
-      str = 'Pending'
-      break
-    case 3:
-      str = 'Closed'
-      break
-    default:
-      str = status
-      break
-  }
-
-  return str
 }
 
 module.exports = mongoose.model(COLLECTION, ticketSchema)
